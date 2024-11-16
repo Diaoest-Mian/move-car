@@ -168,8 +168,6 @@ function generateHTMLContent(getPhoneNumberUrl, notifyUrl) {
 
           // 拨打车主电话
           function callOwner() {
-            alert("不会吧兄弟，我的车还在路上呢🤪");
-            //return;
             fetch("${getPhoneNumberUrl}", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
