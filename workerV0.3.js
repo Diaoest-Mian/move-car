@@ -2,17 +2,58 @@ addEventListener('fetch', event => {
   event.respondWith(handleRequest(event.request))
 })
 
+function generateRandomString(length) {
+  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+  let result = ''
+  for (let i = 0; i < length; i++) {
+    const randomIndex = Math.floor(Math.random() * characters.length)
+    result += characters[randomIndex]
+  }
+  return result
+}
+
+
 async function handleRequest(request) {
   const phone = PHONE_NUMBER
   const wxpusherAppToken = WXPUSHER_APP_TOKEN // Wxpusher APP Token
   const wxpusherUIDs = [WXPUSHER_UID]  // 车主的UIDs
   const gdKey = GD_KEY  // 高德api的key， 个人开发者每天有5000逆地理编码请求次数
 
-  
+  const phoneNumberUrlKey = 'getPhoneNumberUrl';
+  const notifyUrlKey = 'notifyUrl';
+  const addrUrlKey = 'getAddrUrl'
+
+  const expirationTime = 600; // 设置有效期为 600 秒
+
+  // 检查 `getPhoneNumberUrl` 是否存在
+  let getPhoneNumberUrl = await URLL.get(phoneNumberUrlKey);
+  if (!getPhoneNumberUrl) {
+    // 如果不存在，生成一个新的随机字符串并存入 KV
+    getPhoneNumberUrl = '/' + generateRandomString(20);
+    await URLL.put(phoneNumberUrlKey, getPhoneNumberUrl, { expirationTtl: expirationTime });
+  }
+
+  // 检查 `notifyUrl` 是否存在
+  let notifyUrl = await URLL.get(notifyUrlKey);
+  if (!notifyUrl) {
+    // 如果不存在，生成一个新的随机字符串并存入 KV
+    notifyUrl = '/' + generateRandomString(20);
+    await URLL.put(notifyUrlKey, notifyUrl, { expirationTtl: expirationTime });
+  }
+
+  // 检查 `getAddrUrl` 是否存在
+  let getAddrUrl = await URLL.get(addrUrlKey);
+  if (!getAddrUrl) {
+    // 如果不存在，生成一个新的随机字符串并存入 KV
+    getAddrUrl = '/' + generateRandomString(20);
+    await URLL.put(addrUrlKey, getAddrUrl, { expirationTtl: expirationTime });
+  }
+
   if (request.method === 'POST') {
     // 处理 POST 请求，用于发送通知
     const data = await request.json();
-    if (data.action === 'notifyOwner') {
+
+    if (data.action === 'notifyOwner' && request.url.includes(notifyUrl)) {
       // 调用 Wxpusher API 发送通知
       const response = await fetch("https://wxpusher.zjiecode.com/api/send/message", {
         method: "POST",
@@ -37,7 +78,7 @@ async function handleRequest(request) {
       }
     }
 
-    if (data.action === 'getAddr') {
+    if (data.action === 'getAddr' && request.url.includes(getAddrUrl)) {
       let loca = data.lng.toFixed(6).replace(/(\.\d*?)0+$/, "$1") + ',' + data.lat.toFixed(6).replace(/(\.\d*?)0+$/, "$1")
       let gdapi = "https://restapi.amap.com/v3/geocode/regeo?key=" + gdKey + "&location=" + loca;
       const response = await fetch(gdapi, {
@@ -57,19 +98,25 @@ async function handleRequest(request) {
         });
       }
     }
-  }
 
     // 获取手机号的请求
-  if (request.url.includes('/getPhoneNumber')) {
-    return new Response(JSON.stringify({ phone: phone }), {
-      headers: { "Content-Type": "application/json" },
-    });
+    if (data.action === 'callll' && request.url.includes(getPhoneNumberUrl)) {
+      return new Response(JSON.stringify({ phone: phone }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
   }
 
+  return new Response(generateHTMLContent(getPhoneNumberUrl, notifyUrl, getAddrUrl), {
+    headers: { 'Content-Type': 'text/html;charset=UTF-8' }
+  });
+
+}
+
   
-  
-    // 返回 HTML 页面
-    const htmlContent = `
+// 返回 HTML 页面
+function generateHTMLContent(getPhoneNumberUrl, notifyUrl, getAddrUrl) {
+  return `
       <!DOCTYPE html>
       <html lang="zh-CN">
         <head>
@@ -195,7 +242,7 @@ async function handleRequest(request) {
               addr = "Latitude: " + location.latitude + "Longitude: " + location.longitude;
               let address = "";
               alert("通知已发送！"); // 这个是假的，防止后面的请求时长太久误以为没点到多次点击
-              fetch("/getAddress", {
+              fetch("${getAddrUrl}", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ action: "getAddr", lat: location.latitude, lng: location.longitude})
@@ -207,7 +254,7 @@ async function handleRequest(request) {
                 const userMessage = messageInput.value.trim();
                 // 构造通知内容，附加用户留言
                 const message = "您好，有人需要您挪车，请及时处理。" + userMessage + "\\n位置: " + address;
-                fetch("/notify", {
+                fetch("${notifyUrl}", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ action: "notifyOwner", msg: message })
@@ -243,22 +290,22 @@ async function handleRequest(request) {
                 return;
               }
 
-              fetch("/getPhoneNumber")
+              fetch("${getPhoneNumberUrl}", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "callll"})
+              })
               .then(response => response.json())
               .then(data => {
                 window.location.href = "tel:" + data.phone;
               })
               .catch(error => {
                 console.error("Error getting phone number:", error);
-                alert("获取手机号出错，请检查网络连接。");
+                alert("获取手机号出错，请检查网络连接并刷新重试。");
               });
             }
           </script>
         </body>
       </html>
     `;
-  
-    return new Response(htmlContent, {
-      headers: { 'Content-Type': 'text/html;charset=UTF-8' },
-    });
-  }
+}

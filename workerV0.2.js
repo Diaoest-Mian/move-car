@@ -1,17 +1,49 @@
 addEventListener('fetch', event => {
     event.respondWith(handleRequest(event.request))
-  })
-  
+})
+
+function generateRandomString(length) {
+  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+  let result = ''
+  for (let i = 0; i < length; i++) {
+    const randomIndex = Math.floor(Math.random() * characters.length)
+    result += characters[randomIndex]
+  }
+  return result
+}
+
   async function handleRequest(request) {
     const phone = PHONE_NUMBER
     const wxpusherAppToken = WXPUSHER_APP_TOKEN // Wxpusher APP Token
     const wxpusherUIDs = [WXPUSHER_UID]  // 车主的UIDs
   
+    const phoneNumberUrlKey = 'getPhoneNumberUrl';
+  const notifyUrlKey = 'notifyUrl';
+
+  const expirationTime = 600; // 设置有效期为 600 秒
+
+  // 检查 `getPhoneNumberUrl` 是否存在
+  let getPhoneNumberUrl = await URLL.get(phoneNumberUrlKey);
+  if (!getPhoneNumberUrl) {
+    // 如果不存在，生成一个新的随机字符串并存入 KV
+    getPhoneNumberUrl = '/' + generateRandomString(20);
+    await URLL.put(phoneNumberUrlKey, getPhoneNumberUrl, { expirationTtl: expirationTime });
+  }
+
+  // 检查 `notifyUrl` 是否存在
+  let notifyUrl = await URLL.get(notifyUrlKey);
+  if (!notifyUrl) {
+    // 如果不存在，生成一个新的随机字符串并存入 KV
+    notifyUrl = '/' + generateRandomString(20);
+    await URLL.put(notifyUrlKey, notifyUrl, { expirationTtl: expirationTime });
+  }
+
+
       if (request.method === 'POST') {
         // 处理 POST 请求，用于发送通知
         const data = await request.json();
     
-        if (data.action === 'notifyOwner') {
+        if (data.action === 'notifyOwner' && request.url.includes(notifyUrl)) {
           // 调用 Wxpusher API 发送通知
           const response = await fetch("https://wxpusher.zjiecode.com/api/send/message", {
             method: "POST",
@@ -30,26 +62,30 @@ addEventListener('fetch', event => {
               headers: { "Content-Type": "application/json" },
             });
           } else {
-            return new Response(JSON.stringify({ message: '通知发送失败，请稍后重试。' }), {
+            return new Response(JSON.stringify({ message: '通知发送失败，请稍后刷新重试。' }), {
               headers: { "Content-Type": "application/json" },
             });
           }
         }
+
+        // 获取手机号的请求
+        if (data.action === 'callll' && request.url.includes(getPhoneNumberUrl)) {
+          return new Response(JSON.stringify({ phone: phone }), {
+            headers: { "Content-Type": "application/json" },
+          });
+        }
       }
-  
-      // 获取手机号的请求
-    if (request.url.includes('/getPhoneNumber')) {
-      return new Response(JSON.stringify({ phone: phone }), {
-        headers: { "Content-Type": "application/json" },
+
+      return new Response(generateHTMLContent(getPhoneNumberUrl, notifyUrl), {
+        headers: { 'Content-Type': 'text/html;charset=UTF-8' }
       });
-    }
-  
     
-    
-      // 返回 HTML 页面
-      const htmlContent = `
-        <!DOCTYPE html>
-        <html lang="zh-CN">
+}
+
+function generateHTMLContent(getPhoneNumberUrl, notifyUrl) {
+  return `
+      <!DOCTYPE html>
+      <html lang="zh-CN">
           <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -117,7 +153,7 @@ addEventListener('fetch', event => {
                 // 构造通知内容，附加用户留言
                 const message = "您好，有人需要您挪车，请及时处理。" + userMessage;
 
-                fetch("/notify", {
+                fetch("${notifyUrl}", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ action: "notifyOwner", msg: message })
@@ -135,22 +171,22 @@ addEventListener('fetch', event => {
             
               // 拨打车主电话
               function callOwner() {
-                fetch("/getPhoneNumber")
+                fetch("${getPhoneNumberUrl}", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ action: "callll"})
+                })
                 .then(response => response.json())
                 .then(data => {
                   window.location.href = "tel:" + data.phone;
                 })
                 .catch(error => {
                   console.error("Error getting phone number:", error);
-                  alert("获取手机号出错，请检查网络连接。");
+                  alert("获取手机号出错，请检查网络连接并刷新重试。");
                 });
               }
             </script>
           </body>
         </html>
       `;
-    
-      return new Response(htmlContent, {
-        headers: { 'Content-Type': 'text/html;charset=UTF-8' },
-      });
-    }
+}
