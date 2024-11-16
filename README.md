@@ -1,6 +1,7 @@
 # move-car
 
-来源于网友分享的[部署于cf的挪车二维码](https://linux.do/t/topic/254701)
+来源于佬友分享的[部署于cf的挪车二维码](https://linux.do/t/topic/254701)
+再附一个wangdefa佬的[带管理系统的版本](https://github.com/oozzbb/car-qrcode-notify)
 
 ## 说明
 微调出了以下3个版本
